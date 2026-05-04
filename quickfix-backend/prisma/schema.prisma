@@ -1,0 +1,272 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  WORKER
+  ADMIN
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum JobStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum DocumentType {
+  PROFILE_PHOTO
+  GOVERNMENT_ID
+  CERTIFICATE
+  INSURANCE
+  BACKGROUND_CHECK
+  OTHER
+}
+
+enum BidStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum PaymentStatus {
+  PENDING
+  REQUESTED
+  CUSTOMER_PAID
+  RELEASED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  password     String
+  firstName    String
+  lastName     String
+  phone        String?
+  role         Role     @default(CUSTOMER)
+  avatarUrl    String?
+  agreedToTerms Boolean @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  isActive     Boolean  @default(true)
+
+  workerProfile    WorkerProfile?
+  postedJobs       Job[]          @relation("CustomerJobs")
+  assignedJobs     Job[]          @relation("WorkerJobs")
+  bids             JobBid[]
+  sentMessages     Message[]      @relation("SentMessages")
+  reviewsGiven     Review[]       @relation("ReviewsGiven")
+  reviewsReceived  Review[]       @relation("ReviewsReceived")
+  verifiedWorkers  WorkerProfile[] @relation("VerifiedBy")
+  analytics        AnalyticsEvent[]
+}
+
+model WorkerProfile {
+  id               String             @id @default(cuid())
+  userId           String             @unique
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Profile
+  businessName     String?
+  bio              String?
+  category         String
+  skills           String[]
+  city             String
+  province         String             @default("ON")
+  lat              Float?
+  lng              Float?
+  serviceRadius    Int                @default(25)
+  
+  // Profile photo (must be < 6 months old)
+  profilePhotoUrl      String?
+  profilePhotoPublicId String?
+  profilePhotoUploadedAt DateTime?
+  
+  // Verification
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  verifiedById     String?
+  verifiedBy       User?              @relation("VerifiedBy", fields: [verifiedById], references: [id])
+  verifiedAt       DateTime?
+  verificationNotes String?
+  requestedAt      DateTime?
+  
+  // Availability
+  isAvailable      Boolean            @default(false)
+  responseMinutes  Int                @default(60)
+  lastActiveAt     DateTime           @default(now())
+  
+  // Stats
+  avgRating        Float              @default(0)
+  reviewsCount     Int                @default(0)
+  completionRate   Float              @default(0)
+  jobsCompleted    Int                @default(0)
+  
+  // Hourly rate
+  hourlyRateMin    Float?
+  hourlyRateMax    Float?
+  
+  documents        WorkerDocument[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+}
+
+model WorkerDocument {
+  id             String         @id @default(cuid())
+  workerId       String
+  worker         WorkerProfile  @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  
+  docType        DocumentType
+  url            String
+  publicId       String
+  fileName       String
+  mimeType       String
+  fileSize       Int?
+  
+  uploadedAt     DateTime       @default(now())
+}
+
+model Job {
+  id               String      @id @default(cuid())
+  customerId       String
+  customer         User        @relation("CustomerJobs", fields: [customerId], references: [id])
+  
+  title            String
+  description      String
+  category         String
+  locationCity     String
+  locationAddress  String?
+  lat              Float?
+  lng              Float?
+  
+  budgetMin        Float?
+  budgetMax        Float?
+  status           JobStatus   @default(OPEN)
+  
+  isEmergency      Boolean     @default(false)
+  emergencyMultiplier Float    @default(1.0)
+  
+  preferredWorkerId String?
+  assignedWorkerId  String?
+  assignedWorker    User?      @relation("WorkerJobs", fields: [assignedWorkerId], references: [id])
+  
+  mediaUrls        String[]
+  
+  // Payment
+  paymentStatus    PaymentStatus @default(PENDING)
+  agreedPrice      Float?
+  paymentRequestedAt DateTime?
+  customerPaidAt   DateTime?
+  releasedAt       DateTime?
+  releasedByAdminId String?
+  
+  // Cancellation
+  cancellationPenalty   Boolean  @default(false)
+  penaltyPaid           Boolean  @default(false)
+  cancelledByCustomer   Boolean  @default(false)
+  workerNoShow          Boolean  @default(false)
+  
+  bids             JobBid[]
+  messages         Message[]
+  reviews          Review[]
+  
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  assignedAt       DateTime?
+  completedAt      DateTime?
+}
+
+model JobBid {
+  id          String    @id @default(cuid())
+  jobId       String
+  job         Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  workerId    String
+  worker      User      @relation(fields: [workerId], references: [id])
+  
+  price       Float
+  etaMins     Int
+  message     String
+  status      BidStatus @default(PENDING)
+  
+  // Scheduled visit date/time
+  scheduledDate  String?
+  scheduledTime  String?
+  
+  availableNow Boolean  @default(false)
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([jobId, workerId])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    User     @relation("SentMessages", fields: [senderId], references: [id])
+  
+  text      String
+  readAt    DateTime?
+  
+  createdAt DateTime @default(now())
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  jobId       String
+  job         Job      @relation(fields: [jobId], references: [id])
+  reviewerId  String
+  reviewer    User     @relation("ReviewsGiven", fields: [reviewerId], references: [id])
+  revieweeId  String
+  reviewee    User     @relation("ReviewsReceived", fields: [revieweeId], references: [id])
+  
+  rating      Int
+  comment     String
+  photoUrls   String[]
+  
+  isVerifiedJob Boolean @default(true)
+  
+  createdAt   DateTime @default(now())
+
+  @@unique([jobId, reviewerId])
+}
+
+model PricingBenchmark {
+  id          String   @id @default(cuid())
+  city        String
+  category    String
+  minPrice    Float
+  maxPrice    Float
+  medianPrice Float
+  sampleSize  Int      @default(0)
+  lastUpdated DateTime @default(now())
+  
+  @@unique([city, category])
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  event     String
+  metadata  Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+}

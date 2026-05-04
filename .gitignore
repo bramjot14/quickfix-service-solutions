@@ -1,0 +1,9 @@
+# Never push these to GitHub
+quickfix-backend/.env
+quickfix-frontend/.env
+node_modules/
+quickfix-backend/node_modules/
+quickfix-frontend/node_modules/
+quickfix-backend/logs/
+.DS_Store
+*.zip
